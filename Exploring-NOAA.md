@@ -2,6 +2,8 @@ Exploring NOAA storm database
 ================
 Created by Hugo Amorim
 15/02/2021
+https://rpubs.com/PatronMaster/ReproducibleResearch
+
 
 ## Synopsis
 
