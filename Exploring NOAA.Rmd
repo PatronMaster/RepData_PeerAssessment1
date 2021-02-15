@@ -1,0 +1,208 @@
+---
+title: "Exploring NOAA storm database"
+author: "Created by Hugo Amorim"
+date: "15/02/2021"
+output: 
+  html_document:
+    keep_md: true
+    toc: true
+    toc_float: true
+---
+
+## Synopsis
+
+Climatic events have an impact on the population health and economic consequences worldwide.
+
+Using the National Oceanic and Atmospheric Administration's (NOAA) Storm Database we can measure the impact of most weather harmful events on US.
+
+I concluded the most impact events are Tornado and flood.
+
+------------------------------------------------------------------------
+
+## Support packages & options
+
+I used for this investigation the following:
+
+| Software | Value                        |
+|----------|------------------------------|
+| platform | x86_64-pc-linux-gnu          |
+| arch     | x86_64                       |
+| os       | linux-gnu                    |
+| language | R                            |
+| version  | R version 4.0.3 (2020-10-10) |
+
+The support packages are:
+
+```{r support,echo=TRUE,message=FALSE}
+library(tidyverse)
+library(R.utils)
+library(data.table)
+library(DT)
+library(knitr)
+library(ggplot2)
+library(plotly)
+options(scipen=999)
+```
+
+------------------------------------------------------------------------
+
+## Data Processing
+
+### READ data
+
+First, I am Read the data for that I need:
+
+-   Uncompress
+-   Read in my case using read_csv
+
+Fread can make the Uncompress and read at same time.
+
+```{r Read Data, echo=TRUE,message=FALSE,results=FALSE,cache=TRUE}
+StormData <- fread("Data_2/repdata_data_StormData.csv.bz2")
+```
+
+### Showing the head of data 
+
+The table below have first 20 rows of raw data (you can play with the table, this is a dynamic table).
+
+```{r head StormData, echo=TRUE}
+datatable(StormData[1:20,])
+```
+
+### Transforming the data PROPDMGEXP and CROPDMGEXP
+
+The columns PROPDMGEXP and CROPDMGEXP need some transformation. This because we have letters inside. Please check below table for more details.
+
+```{r table PROPDMGEXP, echo=TRUE}
+datatable(as.data.frame(table(StormData$PROPDMGEXP)))
+```
+
+So, I need replace the letters by the right values for that I created a function called Economic_Losses that will receive a letter or number and will return like this:
+
+-    , return 0
+
+-   -, return 0
+
+-   ?, return 0
+
+-   +, return 1
+
+-   h, return 100
+
+-   k, return 1000
+
+-   m, return 1000000
+
+-   b, return 1000000000
+
+-   Other value, same value
+
+```{r}
+tmp<-StormData
+Economic_Losses <- function(variable) {
+  if (variable=="") {
+    return(0)
+  }
+    switch(variable,
+           "-"=return(0),
+           "?"=return(0),
+           "+"=return(1),
+           "h"=return(100),
+           "k"=return(1000),
+           "m"=return(1000000),
+           "b"=return(1000000000),
+           return(variable)
+    )
+}
+tmp$PROPDMGEXP<-as.character(tolower(tmp$PROPDMGEXP))
+tmp$PROPDMGEXP<-as.numeric(lapply(tmp$PROPDMGEXP,Economic_Losses))
+tmp$CROPDMGEXP<-as.character(tolower(tmp$CROPDMGEXP))
+tmp$CROPDMGEXP<-as.numeric(lapply(tmp$CROPDMGEXP,Economic_Losses))
+
+tmp<-tmp %>% 
+    mutate(PROPDMG_T=PROPDMG*PROPDMGEXP) %>% 
+    mutate(CROPDMG_T=CROPDMG*CROPDMGEXP)
+```
+
+After transformation now is just have numbers.
+
+```{r Transformated StormData, echo=TRUE}
+datatable(as.data.frame(table(tmp$PROPDMGEXP)))
+```
+
+### Calculation of TOP 10 most harmful events
+
+First I group by EVTYPE
+
+```{r Grouped data,echo=TRUE}
+StormData_group<- tmp %>% 
+    group_by(EVTYPE)
+```
+
+Then I summarise and pick only 10 most most harmful events
+
+**Note:** I also need to sum the columns FATALITIES and INJURIES
+
+```{r,message=FALSE,warning=FALSE,echo=TRUE}
+StormData_summarise<-StormData_group %>% 
+    summarise(FATALITIES=sum(FATALITIES),INJURIES=sum(INJURIES)) %>%
+    mutate(Total=FATALITIES+INJURIES)
+
+StormData_TOP10<-StormData_summarise[order(StormData_summarise$Total,decreasing = TRUE),][1:10,]
+StormData.long<-melt(StormData_TOP10[,1:3],id.vars="EVTYPE")
+
+```
+
+The output after transformation StormData summarize
+
+```{r StormData summarize, echo=TRUE}
+datatable(StormData_summarise)
+```
+Now the same transformation for economics events 
+
+```{r,warning=FALSE,message=FALSE}
+
+StormData_economics<-StormData_group %>% 
+    summarise(PROPDMG=sum(PROPDMG_T),CROPDMG=sum(CROPDMG_T))%>%
+    mutate(Total=PROPDMG+CROPDMG)
+
+
+StormData_TOP10_economics<-StormData_economics[order(StormData_economics$Total,decreasing =TRUE),][1:10,]
+
+StormData.economics<-melt(StormData_TOP10_economics[,1:3],id.vars="EVTYPE")
+```
+
+------------------------------------------------------------------------
+
+## Results
+
+We can easily verify the most harmful events with respect to population health is Tornado. We also can verify on below images the fatalities and injuries both have the tornado as harmful event. 
+
+Related with most harmful events with respect to economic consequences the flood is most harmful. We can verify the crop is more affected by drought then flood.
+
+```{r}
+p1<-ggplot(data=StormData.long, aes(x=reorder(EVTYPE,value), y=value,fill=variable)) +
+  geom_bar(stat="identity")+
+   coord_flip()+
+    labs(title = "")+
+    xlab("Event type")+
+    ylab("Sum ")
+pp1<-ggplotly(p1) 
+  
+```
+
+```{r}
+p2<-ggplot(data=StormData.economics, aes(x=reorder(EVTYPE,value), y=value,fill=variable)) +
+  geom_bar(stat="identity")+
+  scale_fill_manual(values = c("green","black"))+
+   labs(fill = "Value")+
+   coord_flip()+
+    labs(title = "Most harmful events")+
+    xlab("Event type")+
+    ylab("Sum ")
+pp2<-ggplotly(p2)
+subplot(pp1,pp2,nrows = 2)
+
+```
+
+**Note:** this figures are interactive so you can play with images.
